@@ -9,6 +9,9 @@ from .qsys import qrc
 
 # TODO: consider entity.async_generate_entity_id
 def id_for_component_control(core_name, component, control):
+    if not component:
+        # Top-level Named Control (no backing component).
+        return f"{core_name}__nc__{control}"
     return f"{core_name}_{component}_{control}"
 
 
@@ -96,4 +99,8 @@ class QSysComponentControlBase(QSysComponentBase):
     async def update_control(self, control_values):
         payload = {"Name": self.control}
         payload.update(**control_values)
-        await self.core.component().set(self.component, controls=[payload])
+        if self.component:
+            await self.core.component().set(self.component, controls=[payload])
+        else:
+            # Top-level Named Control: Control.Set takes a single object.
+            await self.core.control().set(payload)
