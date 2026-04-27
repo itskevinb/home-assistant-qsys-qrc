@@ -6,6 +6,8 @@
 [![hacs][hacsbadge]][hacs]
 [![Community Forum][forum-shield]][forum]
 
+> **Fork notice:** This is a friendly fork of [nkvoll/home-assistant-qsys-qrc](https://github.com/nkvoll/home-assistant-qsys-qrc) that adds support for **top-level Q-Sys Named Controls** (the entries in the Named Controls panel that aren't backed by a scriptable component) and a new `select` platform for controls with a `Choices` list. See the [Named Controls](#named-controls-no-component-backing) section below for the YAML and the [Releases](https://github.com/itskevinb/home-assistant-qsys-qrc/releases) page for changelog.
+
 Note: This is a work in progress, but should work. If it doesn't, please open an issue.
 
 A custom component that integrates Q-Sys Core Devices with Home Assistant via [QRC](https://q-syshelp.qsc.com/Index.htm#External_Control_APIs/QRC/QRC_Overview.htm). This is useful to expose elements such as gain controls, mute buttons and different media players to HA.
@@ -50,6 +52,19 @@ A custom component that integrates Q-Sys Core Devices with Home Assistant via [Q
 
   - `String` controls.
 
+- `select` platform (this fork):
+
+  - Q-Sys controls with a `Choices` list (e.g. multi-state buttons, source selectors).
+  - Options auto-populate from QRC; pin a static `options:` list in YAML to override.
+
+- **Top-level Named Controls (this fork):**
+
+  - For switch / number / sensor / text / select entries, omit the
+    `component:` key and the integration treats `control:` as a top-level
+    Q-Sys Named Control (i.e., entries in the Named Controls panel that
+    aren't pinned to a scriptable component). Existing component-backed
+    configs keep working unchanged.
+
 - `services`:
   - Invoking methods on the device via QRC (see `Services` section below)
 
@@ -62,7 +77,7 @@ Add the custom component via your `custom_components` folder or via HACS (untest
 1. Install HACS
 1. Open HACS in the sidebar and go to "Integrations".
 1. Press the three dots in the top right corner and select "Custom repositories"
-1. Fill in the form with `Repository: https://github.com/nkvoll/home-assistant-qsys-qrc`, `Category: Integration` and click "Add".
+1. Fill in the form with `Repository: https://github.com/itskevinb/home-assistant-qsys-qrc`, `Category: Integration` and click "Add".
 1. Once it's added, you can search for `q-sys qrc`, click the integration and select "Download".
 1. Restart Home Assistant ("Settings" -> three dots top right corner -> "Restart Home Assistant")
 1. In the HA UI go to "Configuration" -> "Devices & Services" click "+ Add Integration" (bottom right corner) and search for "Q-Sys QRC Integration"
@@ -88,6 +103,54 @@ See [the example configuration](examples/configuration.yaml) for an example of w
 In order to find the right component and control names, use the [Q-Sys Designer](https://www.qsc.com/resources/software-and-firmware/q-sys-designer-software/). To find the right control name, open the design file and use “Tools → View Component Controls Info” then select your component. See example screenshot.
 
 ![View Component Controls Info”](examples/qsys_designer_view_component_controls_info.png)
+
+### Named Controls (no component backing)
+
+Q-Sys designs often expose top-level **Named Controls** — entries in the
+Named Controls panel that aren't bound to a scriptable component. These are
+reachable via QRC's `Control.Get` / `Control.Set`, and this fork lets you
+map them to HA entities by **omitting the `component:` key** in YAML:
+
+```yaml
+qsys_qrc:
+  cores:
+    MainCore:
+      platforms:
+        switch:
+          - name: "Apple Power"
+            control: "Apple.Power"        # top-level Named Control
+          - name: "Roon Mute"
+            control: "Roon.Mute"
+
+        number:
+          - name: "Roon Volume"
+            control: "Roon.Volume"
+            unit_of_measurement: "dB"
+            min: -80
+            max: 0
+            step: 1
+
+        select:
+          - name: "Apple Lights"
+            control: "Apple.Lights"        # options auto-populated from Choices
+
+        text:
+          - name: "Hue Lights"
+            control: "Hue.Lights"
+
+        sensor:
+          - name: "Roon Now Playing"
+            control: "Text_ControllerNowPlaying_Text"
+            attribute: "String"
+```
+
+Component-backed entries (the original style) keep working unchanged
+alongside top-level entries.
+
+To enumerate the Named Controls a Core exposes, you can call
+`Control.Get` with the `qsys_qrc.call_method` service (see below) using
+a flat list of names — or omit `Component.GetComponents` and look at the
+Named Controls panel in Q-Sys Designer.
 
 ### Services
 
