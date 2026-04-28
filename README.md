@@ -109,7 +109,11 @@ In order to find the right component and control names, use the [Q-Sys Designer]
 Q-Sys designs often expose top-level **Named Controls** — entries in the
 Named Controls panel that aren't bound to a scriptable component. These are
 reachable via QRC's `Control.Get` / `Control.Set`, and this fork lets you
-map them to HA entities by **omitting the `component:` key** in YAML:
+map them to HA entities by **omitting the `component:` key** in YAML.
+
+Here's a real install — 23 Named Controls from a `melbourne_v10` design (touchscreen mode/timeouts, PTZ camera buttons, screen brightness) all loaded as switches, numbers, and sensors under one Q-Sys QRC device:
+
+![Q-Sys QRC entities in Home Assistant](examples/ha_entities_list.png)
 
 ```yaml
 qsys_qrc:
