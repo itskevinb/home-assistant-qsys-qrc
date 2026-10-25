@@ -1,7 +1,7 @@
 import re
 
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import device_registry, entity
+from homeassistant.helpers import entity
 
 from .const import *
 from .qsys import qrc
@@ -49,11 +49,8 @@ class QSysComponentBase(entity.Entity):
 
         self.component = component
 
-        core_device_entry = device_registry.async_get(hass).async_get_device(
-            {(DOMAIN, core_name)}
-        )
         self._attr_device_info = entity.DeviceInfo(
-            identifiers=core_device_entry.identifiers,
+            identifiers={(DOMAIN, core_name)},
         )
 
         self._attr_name = entity_name
