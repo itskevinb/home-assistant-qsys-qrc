@@ -319,10 +319,10 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             device_ids = [device_ids]
 
         for device_id in device_ids:
-            device: dr.DeviceEntry = registry.devices.get(device_id, None)
+            device: dr.DeviceEntry | None = registry.async_get(device_id)
 
-            for config_entry_id in device.config_entries:
-                config_entry_ids.add(config_entry_id)
+            if device and device.config_entry_id:
+                config_entry_ids.add(device.config_entry_id)
 
         if not config_entry_ids:
             raise ServiceValidationError("No matching Q-SYS device found for call")
