@@ -1124,3 +1124,61 @@ async def test_no_resource_leaks_over_time():
         assert core._reader is None
         assert core._writer is None
         assert core._reader_task is None
+
+
+def _reconnect_delays(caplog):
+    return [
+        float(r.getMessage().rsplit(" ", 2)[-2])
+        for r in caplog.records
+        if r.getMessage().startswith("Reconnecting in")
+    ]
+
+
+@pytest.mark.asyncio
+@patch('asyncio.open_connection', new_callable=AsyncMock)
+async def test_backoff_grows_while_core_unreachable(mock_open_connection, caplog):
+    """Failed connection attempts must not reset the backoff."""
+    caplog.set_level("INFO", logger="custom_components.qsys_qrc.qsys.qrc")
+    attempts = []
+
+    async def fail(*args, **kwargs):
+        attempts.append(1)
+        raise ConnectionError("unreachable")
+
+    mock_open_connection.side_effect = fail
+    core = Core(TEST_HOST, TEST_PORT, backoff_initial=0.01, backoff_multiplier=2, backoff_max=0.04)
+    run_task = asyncio.create_task(core.run_until_stopped())
+
+    from .utils import wait_for_condition
+    await wait_for_condition(lambda: len(attempts) >= 5, timeout=2, fail_msg="not enough attempts")
+    await core.stop()
+    with contextlib.suppress(asyncio.CancelledError):
+        await run_task
+
+    assert _reconnect_delays(caplog)[:5] == [0.01, 0.02, 0.04, 0.04, 0.04]
+
+
+@pytest.mark.asyncio
+@patch('asyncio.open_connection', new_callable=AsyncMock)
+async def test_backoff_resets_after_successful_connection(mock_open_connection, caplog):
+    """A connection that came up (then dropped) resets the backoff."""
+    caplog.set_level("INFO", logger="custom_components.qsys_qrc.qsys.qrc")
+    attempts = []
+
+    async def connect_then_eof(*args, **kwargs):
+        attempts.append(1)
+        reader = MagicMock()
+        reader.readuntil = AsyncMock(side_effect=asyncio.IncompleteReadError(b"", None))
+        return reader, MagicMock()
+
+    mock_open_connection.side_effect = connect_then_eof
+    core = Core(TEST_HOST, TEST_PORT, backoff_initial=0.01, backoff_multiplier=2, backoff_max=0.04)
+    run_task = asyncio.create_task(core.run_until_stopped())
+
+    from .utils import wait_for_condition
+    await wait_for_condition(lambda: len(attempts) >= 4, timeout=2, fail_msg="not enough attempts")
+    await core.stop()
+    with contextlib.suppress(asyncio.CancelledError):
+        await run_task
+
+    assert _reconnect_delays(caplog)[:3] == [0.01, 0.01, 0.01]

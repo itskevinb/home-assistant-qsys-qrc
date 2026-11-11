@@ -194,7 +194,13 @@ class Core:
         await self._set_state(ConnectionState.DISCONNECTED)
 
     async def _handle_connection_cycle(self):
-        """Handle a single connection attempt and its lifecycle."""
+        """Handle a single connection attempt and its lifecycle.
+
+        Returns True if the connection was established (even if it later
+        dropped), False if connecting failed. The run loop uses this to decide
+        whether to reset the reconnect backoff.
+        """
+        connected = False
         try:
             # Connect to the core
             await self.connect()
@@ -204,6 +210,7 @@ class Core:
 
             # Mark as connected (this resolves the race condition)
             await self._set_state(ConnectionState.CONNECTED)
+            connected = True
 
             # Execute on-connected commands
             await self._execute_on_connected_commands()
@@ -232,6 +239,8 @@ class Core:
         finally:
             await self._cleanup_connection()
 
+        return connected
+
     async def run_until_stopped(self):
         """Run the core connection manager until stopped."""
         backoff = self._backoff_initial
@@ -241,8 +250,11 @@ class Core:
             _LOGGER.debug("Run loop iteration")
 
             try:
-                await self._handle_connection_cycle()
-                backoff = self._backoff_initial  # Reset backoff on successful connection
+                if await self._handle_connection_cycle():
+                    # Only reset after a connection that actually came up, so an
+                    # unreachable Core backs off towards backoff_max instead of
+                    # being retried every backoff_initial forever.
+                    backoff = self._backoff_initial
             except asyncio.CancelledError:
                 _LOGGER.info("Core task cancelled")
                 raise
