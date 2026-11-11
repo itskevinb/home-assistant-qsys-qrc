@@ -13,6 +13,7 @@ import logging
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers import entity_registry as er
 
@@ -104,13 +105,19 @@ class QRCSelectEntity(QSysComponentControlBase, SelectEntity):
         self._static_options = list(static_options) if static_options else []
         self._attr_options = list(self._static_options)
         self._attr_current_option = None
+        # The Core's own Choices list (last seen). Value=<index> indexes THIS
+        # list, which can differ from the HA options (YAML-pinned order/subset,
+        # or an out-of-list live value appended below).
+        self._core_choices: list[str] = []
 
     async def on_control_changed(self, core, change):
+        choices = change.get("Choices") or []
+        if choices:
+            self._core_choices = list(choices)
+
         # If the user pinned options in YAML, keep those; else auto-derive from Choices.
-        if not self._static_options:
-            choices = change.get("Choices") or []
-            if choices:
-                self._attr_options = list(choices)
+        if not self._static_options and choices:
+            self._attr_options = list(choices)
 
         current = change.get("String")
         if current is not None and self._attr_options and current not in self._attr_options:
@@ -120,16 +127,24 @@ class QRCSelectEntity(QSysComponentControlBase, SelectEntity):
         self._attr_current_option = current
 
     async def async_select_option(self, option: str) -> None:
-        # Q-Sys multi-state controls accept Value=<index> deterministically.
-        # Falling back to {"String": option} works on most Cores but isn't documented;
-        # index lookup avoids surprises.
-        if option in self._attr_options:
-            idx = self._attr_options.index(option)
+        # Q-Sys multi-state controls accept Value=<index> deterministically;
+        # the index must be into the Core's Choices, not HA's option list.
+        if self._core_choices:
+            if option not in self._core_choices:
+                raise HomeAssistantError(
+                    f"Option {option!r} is not one of the Core's choices for "
+                    f"{self.component or ''}{'.' if self.component else ''}"
+                    f"{self.control}: {self._core_choices}"
+                )
+            idx = self._core_choices.index(option)
+            await self.update_control({"Value": idx})
+        elif option in self._static_options:
+            # No Choices seen from the Core yet: fall back to the YAML list,
+            # whose order is the only mapping we have.
+            idx = self._static_options.index(option)
             await self.update_control({"Value": idx})
         else:
-            _LOGGER.warning(
-                "select option %r not in current options %s — sending as String fallback",
-                option,
-                self._attr_options,
+            raise HomeAssistantError(
+                f"Option {option!r} cannot be set on {self.control}: the Core has "
+                "not reported a Choices list for it yet"
             )
-            await self.update_control({"String": option})
