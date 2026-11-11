@@ -98,19 +98,10 @@ async def async_setup_entry(
     )
     async_add_entities([engine_status_sensor])
 
-    async def update():
-        while True:
-            try:
-                status = await core.status_get()
-                engine_status_sensor.on_status(status)
-            except asyncio.CancelledError:
-                engine_status_sensor.on_unavailable()
-                raise
-            else:
-                await asyncio.sleep(5)
-
     entities[engine_status_sensor.unique_id] = engine_status_sensor
-    updater = asyncio.create_task(update())
+    updater = asyncio.create_task(
+        run_engine_status_loop(core, engine_status_sensor, core_name)
+    )
 
     entry.async_on_unload(lambda: updater.cancel() and None)
 
@@ -122,6 +113,51 @@ async def async_setup_entry(
         if not entities.get(entity_entry.unique_id):
             _LOGGER.debug("Removing old entity: %s", entity_entry.entity_id)
             er.async_get(hass).async_remove(entity_entry.entity_id)
+
+
+ENGINE_STATUS_INTERVAL = 5
+ENGINE_STATUS_RETRY_DELAY = 5
+
+
+async def run_engine_status_loop(
+    core,
+    sensor,
+    core_name,
+    interval=ENGINE_STATUS_INTERVAL,
+    retry_delay=ENGINE_STATUS_RETRY_DELAY,
+):
+    """Poll StatusGet forever, surviving Core disconnects.
+
+    A call in flight when the connection drops fails with QRCError
+    ("disconnected"), so connection errors mark the sensor unavailable and
+    retry instead of ending the task. Only cancellation stops the loop.
+    """
+    failing = False
+    while True:
+        try:
+            status = await core.status_get()
+        except asyncio.CancelledError:
+            sensor.on_unavailable()
+            raise
+        except (qrc.QRCError, OSError, EOFError, TimeoutError) as ex:
+            if not failing:
+                _LOGGER.warning(
+                    "Engine status unavailable for core %s: %s; retrying",
+                    core_name,
+                    ex,
+                )
+                sensor.on_unavailable()
+                failing = True
+            else:
+                _LOGGER.debug("Engine status still failing for %s: %s", core_name, ex)
+            await asyncio.sleep(retry_delay)
+            continue
+
+        if failing:
+            _LOGGER.info("Engine status recovered for core %s", core_name)
+            failing = False
+        sensor.on_status(status)
+        await asyncio.sleep(interval)
 
 
 class EngineStatusEntity(QSysComponentBase, SensorEntity):
